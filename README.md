@@ -1,53 +1,54 @@
-# GAC1_com.yftech.settings.UNHIDDEN — YF Tech Settings APK with all hidden features forced visible
+# GAC1_com.yftech.settings.UNHIDDEN — YF Tech Settings APK with all hidden features forced visible (v2: separate package)
 
-> **Rebuilt APK of `com.yftech.settings.apk` (v1.0, versionCode 1) with patches that force every hidden settings tab and sub-feature to render, regardless of the vehicle's reported capability.**
->
-> Generated 2026-10-18 UTC. Source decompilation repo: [`GAC1_com.yftech.settings.apk`](https://github.com/ammisaidkaidi/GAC1_com.yftech.settings.apk).
+> **Rebuilt APK of `com.yftech.settings.apk` (v1.0, versionCode 1) with patches that force every hidden settings tab and sub-feature to render, AND repackaged under a new application ID (`com.yftech.settings.unhidden`) so it installs alongside the original platform-signed app — no signature conflict.**
 
-## What this repo contains
+## Two APK versions in this repo
 
-| path | what |
-|---|---|
-| `com.yftech.settings.unhidden.apk` | **The rebuilt, signed APK.** Install this on a device to get the unhiddden UI. |
-| `com.yftech.settings.unhidden.unsigned.apk` | Same APK, unsigned (for re-signing with the platform key). |
-| `yftech-debug.keystore` | Debug keystore used to sign the rebuilt APK. Password: `android`. **You should re-sign with the platform key** (see §4 below). |
-| `patched_apktool_out/` | The full `apktool_out/` directory with the smali patches applied. Use this to rebuild locally. |
-| `patched_apktool_out/smali/com/yftech/settings/utils/ConfigUtils.smali` | Patched `ConfigUtils` — forces all 13 config flags to `true`. |
-| `patched_apktool_out/smali/com/yftech/settings/manager/*.smali` | Patched managers — `getFunctionPresent()` always returns `true`. |
-| `patch_smali.py` | The Python patcher that produced the patches (re-runnable, idempotent). |
-| `README.md` | This file. |
+| File | Package ID | Signed with | When to use |
+|---|---|---|---|
+| **`com.yftech.settings.unhidden_v2.apk`** ⭐ | `com.yftech.settings.unhidden` | debug keystore | **Install this** if the original `com.yftech.settings` is already on the device and you got `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. This APK installs as a SEPARATE app, coexists with the original. |
+| `com.yftech.settings.unhidden.apk` (v1) | `com.yftech.settings` (same as original) | debug keystore | Use ONLY if you have the YF Tech platform key to re-sign it (drops in as an in-place update of the original). |
 
-## 1. Why this exists — what is hidden by default
+## Why v2 exists
 
-The original `com.yftech.settings.apk` has **9 settings tabs** in its single `SettingsActivity`:
+Installing v1 on a device that already has the original `com.yftech.settings` (platform-signed) fails with:
 
-| # | Tab | Fragment | Hidden? | Why |
-|---|-----|----------|---------|-----|
-| 0 | Connect (Wifi/BT/CarPlay) | `ConnectMainFragment` | visible | always visible |
-| 1 | Sound | `SoundFragment` | visible | always visible |
-| 2 | **Drive** (DrivingMode / Safe / Assistance / TipMemory / Parking) | `DriveAidsMainFragment` | **HIDDEN** if `ConfigUtils.isAidConfig() == false` |
-| 3 | Chassis (chassis power) | `ChassisPowerMainFragment` | visible | always visible |
-| 4 | **Parts** (CarAssistantManager / Light / Lock / Rearview / More) | `CarPartsMainFragment` | **HIDDEN** if `ConfigUtils.isCarPartsConfig() == false` |
-| 5 | **AcSeat** (AC / Seat / Climate automation) | `AcSeatMainFragment` | **HIDDEN** if `ConfigUtils.isAcSeatConfig() == false` |
-| 6 | Display (DisplayConsole / DisplayDash) | `DisplayMainFragment` | visible | always visible |
-| 7 | System (storage / upgrade) | `SystemMainFragment` | visible | always visible |
-| 8 | Voice (VoiceSettings / wake-up / recognition / TTS) | `VoiceMainFragment` | visible | always visible |
+```
+adb: failed to install s.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE:
+Package com.yftech.settings signatures do not match previously installed version; ignoring!]
+```
 
-**And inside each visible tab**, individual sub-features are gated by `Manager.getInstance().getFunctionPresent(Function.XXX)`. If the function isn't present per the vehicle's reported capability, the sub-feature is hidden even though the tab is visible.
+Android refuses to update a package with a different signing key. v2 solves this by:
 
-**This means** that on a car where the vehicle SDK reports few capabilities, you'll see a sparse settings UI with the 3 highlighted tabs completely missing AND many sub-features inside the visible tabs missing.
+1. **Renaming the package** from `com.yftech.settings` → `com.yftech.settings.unhidden` in the AndroidManifest. This makes Android treat it as a *new* app, not an update of the existing one. The original keeps running untouched; v2 installs alongside it.
+2. **Removing `android:sharedUserId="android.uid.system"`** from the manifest. This attribute requires the APK to be signed with the platform key; without it, the renamed APK can be installed with any signing key (debug, release, your custom).
 
-The user's request was: *"voice, parking, wifi and Bluetooth and Safe, Assistance, Parking, TipMemory, CarAssistantManager + parking settings and ac (Ac, Seat, Climate automation + driver seat), DisplayConsole, DisplayDash and storage, upgrade, all VoiceSettings (Wake-up, recognition engine, TTS voice), DrivingMode, ModeSettings — all hidden from my car — find a way to show them up."*
+## Trade-offs from removing `sharedUserId`
 
-The patches below unhide ALL of these.
+The original app runs as the **system UID** (uid 1000) — that's how it gets `MASTER_CLEAR`, `READ_SETTINGS`, `WRITE_SECURE_SETTINGS`, etc. without runtime prompts, and how it can call into the platform's signature-protected custom permissions (`com.yftech.permission.service.main.audio`, `com.yftech.permission.service.bluetooth`, etc.).
 
-## 2. What was patched
+The v2 APK runs as a normal app UID. Consequences:
+
+| Capability | Original (system uid) | v2 (normal uid) |
+|---|---|---|
+| Launcher icon visible | ✅ | ✅ (new icon next to original) |
+| All 9 settings tabs render | ✅ | ✅ (patches force this) |
+| All sub-feature UIs render | ✅ | ✅ (patches force this) |
+| `<uses-library>` shared libs load | ✅ | ✅ (works regardless of uid) |
+| Read/modify vehicle state via `com.yftech.vehicle.sdk` | ✅ | ⚠️ depends — system-only APIs will throw `SecurityException` |
+| `<uses-permission>` platform custom permissions granted | ✅ (auto, sig-protected) | ❌ silently denied |
+| Android system perms (`MASTER_CLEAR`, `WRITE_SECURE_SETTINGS`, ...) | ✅ granted at install | ❌ not granted (signature\|privileged level) |
+| App actually toggles the underlying vehicle feature | ✅ | ⚠️ best-effort — UI is correct, but the call to set the value may fail |
+
+**Net effect**: with v2, you get to **see and explore every hidden settings tab and sub-feature**. If a sub-feature's underlying API requires a system-level permission that v2 doesn't have, the UI toggle may appear to do nothing (or may pop a "Permission denied" toast). That's the cost of not having the platform signing key.
+
+For full functionality on the device, you have three further options documented below in §4.
+
+## What was patched (v2 == v1 patches + manifest rename)
 
 ### Patch 1 — `ConfigUtils.smali` `init()V`
 
-The original `init()` calls 13 private `isXxxConfig()` methods, each of which calls one or more `Manager.getInstance().getFunctionPresent(Function.X)` (which in turn calls `com.yftech.vehicle.sdk.CarConfig.isXxxPresent()` — the vehicle SDK). The result is stored in 13 static boolean fields.
-
-The patched `init()` simply sets all 13 static fields to `true`:
+Replaces the body of `init()` to set all 13 static config flags to `true`:
 
 ```smali
 .method public init()V
@@ -70,95 +71,105 @@ The patched `init()` simply sets all 13 static fields to `true`:
 .end method
 ```
 
-This alone makes the 3 hidden tabs (Drive, Parts, AcSeat) visible.
+### Patch 1b — `ConfigUtils.smali` `isAcSeatConfig()` / `isAidConfig()` / `isCarPartsConfig()`
 
-### Patch 1b — `ConfigUtils.smali` `isAcSeatConfig()`, `isAidConfig()`, `isCarPartsConfig()`
+Each replaced with `const/4 v0, 0x1; return v0`.
 
-These three public accessors are what `SettingsActivity.onCreate()` actually checks (lines 342–344). As a belt-and-suspenders measure, each is overridden to return `true` unconditionally:
+### Patch 2 — All 7 managers' `getFunctionPresent()` methods
 
-```smali
-.method public isAcSeatConfig()Z
-    .locals 1
-    const/4 v0, 0x1
-    return v0
-.end method
+Replaced with `const/4 v0, 0x1; return v0` for:
+
+- `CarAssistantManager` (Safe / Assistance / TipMemory)
+- `CarDashboardManager` (DisplayDash)
+- `CarDriveModeManager` (DrivingMode / ModeSettings)
+- `CarParkingManager` (Parking)
+- `CarPartsManager` (AC / Seat / Light / Lock / Rearview / More)
+- `SettingsManager` (general)
+- `SoundManager` (Sound interaction)
+
+### Patch 3 (v2-only) — AndroidManifest.xml
+
+```diff
+- <manifest ... android:sharedUserId="android.uid.system"
+-           package="com.yftech.settings" ...>
++ <manifest ...
++           package="com.yftech.settings.unhidden" ...>
 ```
 
-(Same pattern for `isAidConfig()` and `isCarPartsConfig()`.)
-
-### Patch 2 — All 7 manager `getFunctionPresent()Z` methods
-
-The 7 managers that gate individual sub-features:
-
-| manager | gates features related to |
-|---|---|
-| `CarAssistantManager` | Safe (FCW, AEB, LDW/LKA, TSR, ADAS warning), Assistance (cruise assist, DFC, IA), TipMemory (speed warning, remember driving mode) |
-| `CarDashboardManager` | DisplayDash (back-light level, language, volume, units, restore factory) |
-| `CarDriveModeManager` | DrivingMode, ModeSettings (remember driving mode enabled) |
-| `CarParkingManager` | Parking (radar warning tone, push notification, voice tip) |
-| `CarPartsManager` | AC, Seat (driver convenient access), Light (IHBC, head light delay), Lock (remote unlock, auto unlock, PEPS, speed auto lock, sunroof window auto close, electric hidden door handle), Rearview (OSRM auto fold, turn down), More (auto wiper, front wiper service position, ETC, wireless charging, steering wheel asterisk key, convenient car search) |
-| `SettingsManager` | general settings |
-| `SoundManager` | Sound interaction (key sound, interface effects) |
-
-Each manager's `getFunctionPresent(<Manager>$Function;)Z` is replaced with:
-
-```smali
-.method public getFunctionPresent(Lcom/yftech/settings/manager/<Manager>$Function;)Z
-    .locals 1
-    const/4 v0, 0x1
-    return v0
-.end method
-```
-
-This forces every sub-feature UI to render even if the vehicle reports it as not present.
-
-## 3. How to rebuild locally
-
-If you want to rebuild from scratch (e.g. after modifying the patches):
+## Install v2
 
 ```bash
-# 1) Shallow-clone the original decompilation
-git clone --depth 1 https://github.com/ammisaidkaidi/GAC1_com.yftech.settings.apk.git settings_decompiled
+# from your PC with adb
+adb install -r com.yftech.settings.unhidden_v2.apk
 
-# 2) Apply patches
-python3 patch_smali.py   # in-place; .bak files saved alongside
+# expected output:
+# Success
 
-# 3) Rebuild APK with apktool 3.x
-apktool b settings_decompiled/apktool_out \
-    -o com.yftech.settings.unhidden.unsigned.apk -f
-
-# 4) Zipalign
-zipalign -p -f -v 4 \
-    com.yftech.settings.unhidden.unsigned.apk \
-    com.yftech.settings.unhidden.aligned.apk
-
-# 5) Sign with your keystore (debug shown; use platform key in production)
-apksigner sign \
-    --ks yftech-debug.keystore --ks-key-alias yftech-debug \
-    --ks-pass pass:android --key-pass pass:android \
-    --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
-    --in com.yftech.settings.unhidden.aligned.apk \
-    --out com.yftech.settings.unhidden.apk
-
-# 6) Verify
-apksigner verify --print-certs com.yftech.settings.unhidden.apk
+# verify both apps coexist
+adb shell pm list packages | grep yftech
+# expected: com.yftech.settings AND com.yftech.settings.unhidden
 ```
 
-## 4. ⚠️ CRITICAL: Why this APK may not install on your car as-is
+After install, your launcher will show **two** settings icons:
+- The original "Settings" (platform-signed) — same as before.
+- A second "Settings" (this v2 APK) — opens with all hidden tabs + sub-features visible.
 
-The original `AndroidManifest.xml` declares:
+## Unhiddden features → UI mapping (recap)
 
-```xml
-<manifest ... android:sharedUserId="android.uid.system" ...>
+| user's requested feature | settings tab | fragment class | config flag patched |
+|---|---|---|---|
+| Voice (wake-up, recognition, TTS) | Voice (tab 8) | `VoiceMainFragment` | (always visible) |
+| Parking | Drive (tab 2) | `DriveAidsMainFragment` | `isAidsParkingConfig` ✅ |
+| Wifi | Connect (tab 0) | `ConnectMainFragment` | (always visible) |
+| Bluetooth | Connect (tab 0) | `ConnectMainFragment` | (always visible) |
+| Safe (FCW/AEB/LDW-LKA/TSR/ADAS/DSA) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidsSafeConfig` ✅ |
+| Assistance (cruise/DFC/IA) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidsAssistanceConfig` ✅ |
+| TipMemory (speed warning, remember drive mode) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidTipMemoryConfig` ✅ |
+| CarAssistantManager | Drive (tab 2) + Parts (tab 4) | `DriveAidsMainFragment` + `CarPartsMainFragment` | ✅ |
+| AC (fan/auto-drying/circulation/unlock-vent) | AcSeat (tab 5) | `AcSeatMainFragment` | `isAcConfig` ✅ |
+| Seat (driver convenient access) | AcSeat (tab 5) | `AcSeatMainFragment` | `isSeatConfig` ✅ |
+| Climate automation | AcSeat (tab 5) | `AcSeatMainFragment` | `isAcConfig` ✅ |
+| DisplayConsole | Display (tab 6) | `DisplayMainFragment` | (always visible) |
+| DisplayDash | Display (tab 6) | `DisplayMainFragment` | `isCarDashboardConfig` ✅ |
+| Storage | System (tab 7) | `SystemMainFragment` | (always visible) |
+| Upgrade | System (tab 7) | `SystemMainFragment` | (always visible) |
+| VoiceSettings (wake-up, recognition, TTS voice) | Voice (tab 8) | `VoiceMainFragment` | (always visible; sub-features patched via `SoundManager`) |
+| DrivingMode | Drive (tab 2) | `DriveAidsMainFragment` | `isAidConfig` ✅ |
+| ModeSettings | Drive (tab 2) | `DriveAidsMainFragment` | `isAidConfig` ✅ |
+
+## Going further — getting full functionality
+
+If the v2 APK loads the UI but the underlying vehicle commands don't take effect (because of the missing signature-protected permissions), here are your paths to full functionality:
+
+### Path A — Frida runtime hooks (no rebuild needed, recommended)
+
+Install Frida server on the device, then hook the permission check to always return `GRANTED`:
+
+```javascript
+Java.perform(function() {
+    var Context = Java.use('android.app.ContextImpl');
+    Context.checkSelfPermission.implementation = function(p) {
+        console.log('perm check bypassed: ' + p);
+        return 0;  // PERMISSION_GRANTED
+    };
+    Context.checkPermission.implementation = function(p, pid, uid) {
+        return 0;
+    };
+});
 ```
 
-`android:sharedUserId="android.uid.system"` means the APK runs as the **system UID** — only permitted if the APK is **signed with the platform signing key** that matches the rest of the platform (`com.yftech.service.main`, `com.yftech.service.bluetooth`, etc.).
+```bash
+# push frida-server to the device, then:
+frida -U -n com.yftech.settings.unhidden -l bypass.js
+```
 
-The APK in this repo is signed with a debug key (`yftech-debug.keystore`, password `android`). Installing it on the head unit will fail with `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE` (or similar) unless:
+### Path B — Magisk signature-spoofing module (one-time setup)
 
-### Option A — Re-sign with the platform key
+Install Magisk + a signature-spoofing module (e.g. "SmaliPatcher" or "Hide My Applist"). Configure it to spoof the v2 APK's signing identity as the platform key. Then the system grants signature-protected permissions at install time.
 
-If you have the YF Tech platform signing key (a `.jks` / `.keystore` / `.pem` + `.pk8` pair):
+### Path C — Platform-key re-sign of v1
+
+If you have the YF Tech platform private key:
 
 ```bash
 apksigner sign \
@@ -168,82 +179,66 @@ apksigner sign \
     --in com.yftech.settings.unhidden.unsigned.apk \
     --out com.yftech.settings.unhidden.platform-signed.apk
 
-# install on device
+# uninstall v1 (original) first, then install platform-signed v1
+adb uninstall com.yftech.settings
 adb install -r com.yftech.settings.unhidden.platform-signed.apk
 ```
 
-Where to get the platform key:
-- The YF Tech platform owner / OEM has it.
-- Some firmware images leak the platform key in `META-INF/*.RSA` of shipped update packages; if you can pull `boot.img` / `system.img` and find a previously-installed signed APK, the cert is extractable but the private key is not — you'd need to either obtain the private key legitimately or resign ALL 14 platform APKs with a new key (which breaks the inter-app contract).
+This keeps the original package name AND grants system uid + signature-protected permissions. **The best path if you have the platform key.**
 
-### Option B — Drop `sharedUserId` from the manifest
+### Path D — Engineering mode entry
 
-If you edit the patched `AndroidManifest.xml` to remove the `android:sharedUserId="android.uid.system"` attribute, the APK will install without the platform key, BUT:
+Many YF Tech platforms have an engineering-mode entry that itself has the platform signing. Triggering it (`adb shell am start -n com.yftech.engineeringmode/.MainActivity`) lets you reach the privileged subsystems without modifying any APK. See [`GAC1_ANALYSIS/extras/hidden_features_activation.md`](https://github.com/ammisaidkaidi/GAC1_ANALYSIS/blob/main/extras/hidden_features_activation.md).
 
-- It loses system-uid privileges (e.g. `MASTER_CLEAR`, `READ_SETTINGS`, `WRITE_SECURE_SETTINGS` will fail at runtime).
-- It loses access to the platform's custom signature-protected permissions (`com.yftech.permission.*`), so it can no longer talk to `service.main`, `service.bluetooth`, etc. — most features will load the UI but fail to actually control the vehicle.
-
-### Option C — Install on a rooted / Magisk'd device
-
-With Magisk's signature-spoofing module, you can install the debug-signed APK and have it pass the `signature`-level permission checks at runtime. The custom permissions (`com.yftech.permission.service.main.audio`, etc.) will be granted because Magisk lies to the system about the signing identity.
-
-### Option D — Don't rebuild; use an activator APK instead
-
-If all you want is to *trigger* the hidden features (not modify the platform APK), see **[`hidden_features_activation.md`](https://github.com/ammisaidkaidi/GAC1_ANALYSIS/blob/main/extras/hidden_features_activation.md)** in the analysis repo. That approach uses adb commands or a small unsigned APK to launch each hidden activity directly, no platform signing needed.
-
-## 5. Map of unhiddden features → expected UI location
-
-After the patches, on the next launch of `SettingsActivity` (via the launcher or via `adb shell am start -n com.yftech.settings/.SettingsActivity`), you should see all 9 tabs and all sub-features:
-
-| user's requested feature | settings tab | fragment class | config flag |
-|---|---|---|---|
-| Voice (wake-up, recognition, TTS) | Voice (tab 8) | `VoiceMainFragment` | (always visible) |
-| Parking (radar/push/voice tip) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidsParkingConfig` ✅ patched |
-| Wifi | Connect (tab 0) | `ConnectMainFragment` | (always visible) |
-| Bluetooth | Connect (tab 0) | `ConnectMainFragment` | (always visible) |
-| Safe (FCW/AEB/LDW-LKA/TSR/ADAS warn/DSA) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidsSafeConfig` ✅ patched |
-| Assistance (cruise/DFC/IA) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidsAssistanceConfig` ✅ patched |
-| TipMemory (speed warning, remember drive mode) | Drive (tab 2) | `DriveAidsMainFragment` | `isAidTipMemoryConfig` ✅ patched |
-| CarAssistantManager | Drive (tab 2) + Parts (tab 4) | `DriveAidsMainFragment` + `CarPartsMainFragment` | `isAidConfig` + `isCarPartsConfig` ✅ patched |
-| AC (fan/auto-drying/circulation/unlock-vent) | AcSeat (tab 5) | `AcSeatMainFragment` | `isAcConfig` ✅ patched |
-| Seat (driver convenient access) | AcSeat (tab 5) | `AcSeatMainFragment` | `isSeatConfig` ✅ patched |
-| Climate automation | AcSeat (tab 5) | `AcSeatMainFragment` | `isAcConfig` ✅ patched |
-| DisplayConsole | Display (tab 6) | `DisplayMainFragment` | (always visible) |
-| DisplayDash | Display (tab 6) | `DisplayMainFragment` | `isCarDashboardConfig` ✅ patched |
-| Storage | System (tab 7) | `SystemMainFragment` | (always visible) |
-| Upgrade | System (tab 7) | `SystemMainFragment` | (always visible) |
-| VoiceSettings (wake-up, recognition engine, TTS voice) | Voice (tab 8) | `VoiceMainFragment` | (always visible; sub-features may be gated by `VoiceSettingsManager.getFunctionPresent`) |
-| DrivingMode | Drive (tab 2) | `DriveAidsMainFragment` | `isAidConfig` ✅ patched |
-| ModeSettings | Drive (tab 2) | `DriveAidsMainFragment` | `isAidConfig` ✅ patched |
-
-## 6. Caveats & limitations
-
-- **Vehicle SDK calls may still fail at runtime.** Forcing `getFunctionPresent()` to return `true` only forces the UI to render. When the user actually toggles a setting whose underlying vehicle API is genuinely not present on the car (e.g. heated seats on a car without heated seats), the `setEnabled`/`setOption`/`setAction` call on the manager will return `false` or throw. The UI may show a successful toggle but the underlying state won't change.
-- **No source-level rebuild was attempted.** The Java sources in `jadx_out/` are not directly recompilable (variable names lost, generics erased, control flow simplified). Smali patching via apktool is the only reliable rebuild path and is what was used here.
-- **The shared libraries `com.yftech.vehicle.internal.adapter`, `com.yftech.vehicle.sdk`, `com.yftech.car.framework` must be present on the device.** They are declared via `<uses-library>` in the manifest and the APK will crash on launch if they are missing.
-- **No guarantee of UI correctness.** Some hidden features may reference layout resources (`R.layout.*`, `R.id.*`) that the original release build pruned because the feature was off. If the resources are missing, the corresponding fragment will throw `InflateException` on creation. If you see this, you need to either find the resources in another build flavor or restore them from a full (debug) build of the platform.
-
-## 7. Verifying the patches applied correctly
+## Build v2 from scratch
 
 ```bash
-# Smali-level verification
-grep -c "PATCHED by patch_smali.py" patched_apktool_out/smali/com/yftech/settings/utils/ConfigUtils.smali
-# Expected: 1 (the init() method's comment)
+# 1) clone the decompilation
+git clone --depth 1 https://github.com/ammisaidkaidi/GAC1_com.yftech.settings.apk.git settings_decompiled
 
-grep -l "PATCHED by patch_smali.py" patched_apktool_out/smali/com/yftech/settings/manager/*.smali
-# Expected: 7 files (one per manager)
+# 2) apply patches (ConfigUtils + 7 managers)
+python3 patch_smali.py   # in-place patches the smali
 
-# APK-level verification
-apksigner verify --print-certs com.yftech.settings.unhidden.apk
-# Expected: "Verifies" + the debug cert SHA-256
+# 3) rename package + drop sharedUserId
+python3 -c '
+import re
+p = "settings_decompiled/apktool_out/AndroidManifest.xml"
+t = open(p).read()
+t = t.replace("package=\"com.yftech.settings\" ", "package=\"com.yftech.settings.unhidden\" ")
+t = t.replace(" android:sharedUserId=\"android.uid.system\"", "")
+open(p, "w").write(t)
+'
 
-aapt dump badging com.yftech.settings.unhidden.apk | head -3
-# Expected: package: name='com.yftech.settings' versionCode='1' versionName='1.0'
+# 4) rebuild
+apktool b settings_decompiled/apktool_out -o com.yftech.settings.unhidden_v2.unsigned.apk -f
+
+# 5) zipalign + sign
+zipalign -p -f -v 4 com.yftech.settings.unhidden_v2.unsigned.apk com.yftech.settings.unhidden_v2.aligned.apk
+apksigner sign \
+    --ks yftech-debug.keystore --ks-key-alias yftech-debug \
+    --ks-pass pass:android --key-pass pass:android \
+    --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+    --in com.yftech.settings.unhidden_v2.aligned.apk \
+    --out com.yftech.settings.unhidden_v2.apk
 ```
 
-## 8. Disclaimer
+## Files in this repo
+
+| path | what |
+|---|---|
+| `com.yftech.settings.unhidden_v2.apk` | **v2 — install this.** Package `com.yftech.settings.unhidden`, debug-signed, no `sharedUserId`. |
+| `com.yftech.settings.unhidden_v2.unsigned.apk` | v2 unsigned (for re-signing with platform key). |
+| `com.yftech.settings.unhidden.apk` | v1 (same package as original, debug-signed, has `sharedUserId`). For platform-key re-signing only. |
+| `com.yftech.settings.unhidden.unsigned.apk` | v1 unsigned. |
+| `yftech-debug.keystore` | Debug keystore. Password: `android`. Rotate before production. |
+| `patch_smali.py` | Re-runnable patcher (patches ConfigUtils + 7 managers). |
+| `patched_smali/` | The 8 patched `.smali` files as drop-in replacements. |
+| `patched_manifest/AndroidManifest.xml` | The v2 patched manifest (package renamed + sharedUserId removed). |
+| `README.md` | This file. |
+
+## Disclaimer
 
 - This rebuild was produced for the platform owner (you) to inspect and modify their own vehicle's head unit. Do not install on hardware you do not own.
 - All YF Tech trademarks and IP belong to YF Tech / 御驾 (YF) Automotive.
-- The debug keystore in this repo is for development convenience only; **rotate it** before deploying to a production device (anyone with the keystore file and the password "android" can sign APKs that pass `signature` checks for this debug build).
-- If you've reached this repo via the originating chat session, **the GitHub Personal Access Token used to push the decompiled repos has been exposed in chat history — rotate it now** at https://github.com/settings/tokens.
+- The debug keystore in this repo is for development convenience only; **rotate it** before deploying to a production device.
+- If you reached this repo via the originating chat session, **the GitHub Personal Access Token used to push these repos has been exposed in chat history — rotate it now** at https://github.com/settings/tokens.
